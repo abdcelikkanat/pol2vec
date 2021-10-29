@@ -13,12 +13,12 @@ base_folder = os.path.realpath(os.path.join(script_folder, ".."))
 dataset_folder = os.path.realpath(os.path.join(base_folder, "datasets"))
 
 # Set the dataset name
-dataset_name = "example1_n=10_m=5"  #"example1"
+dataset_name = "example1_n=100_m=50"  #"example1"
 
 # Set the model parameters
 dim = 2
 order = 2
-epochs_num = 50
+epochs_num = 100
 learning_rate = 0.1
 samples_num = 10
 seed = 123
@@ -56,7 +56,7 @@ plt.savefig(loss_file_path)
 animation_file_path = os.path.join(base_folder, "figures", "{}_animation.gif".format(filename_name))
 
 # Sample some time points for the visualization
-time_points_num = 100
+time_points_num = data['events'].shape[1]
 time_points = np.linspace(0, 1, time_points_num)
 
 # Get the correct latent positions
@@ -74,8 +74,8 @@ for t_idx, t in enumerate(time_points):
 anim = Animation(timePoints=time_points,
                          r=1, c=2, figSize=(16, 6), bgColor='white',
                          # color='k', #
-                        color=['r' if i in data['groups'][0] else 'k' for i in range(data['events'].shape[0])],
-                         marker='.', markerSize=15, delay=250, margin=[0.1, 10], label=False)
+                        color=[['r' if data['events'][i, bill_idx] else 'k' for i in range(data['events'].shape[0])] for bill_idx in range(data['events'].shape[1])],
+                         marker='.', markerSize=10, delay=1000, margin=[0.1, 10], label=False)
 anim.addData(x=z_true, index=0, title="True")
 anim.addData(x=z_est, index=1, title="Estimation")
 anim.plot(filePath=animation_file_path)

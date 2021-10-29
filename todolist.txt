@@ -1,0 +1,10 @@
+- Fix the batching problem
++ Fix the position of the categories of the ordinal variables
++ Precision matrix for each time step
++ Diagonal term for precisian matrix
++ Set the sigma value to 1
+- Try Arxiv dataset
+- Apply sampling strategies
+- Think about the indexing issue of the multiplication
+
+- Datasets: Arxiv, us patterns, github collab,

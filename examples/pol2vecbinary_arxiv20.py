@@ -29,7 +29,7 @@ base_folder = os.path.realpath(os.path.join(script_folder, ".."))
 dataset_folder = os.path.realpath(os.path.join(base_folder, "datasets"))
 
 # Set the dataset name
-dataset_name = "arxiv_19-20" #"arxiv_19-20"  #"example1
+dataset_name = "arxiv_20" #"arxiv_19-20"  #"example1
 suffix = "example1"
 
 # Set the model parameters
@@ -38,7 +38,7 @@ order = 2
 epochs_num = 100
 learning_rate = 0.1
 samples_num = 10
-batch_size = 5
+batch_size = 2
 seed = 123
 learn = True
 
