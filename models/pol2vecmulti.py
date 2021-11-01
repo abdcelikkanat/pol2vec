@@ -9,8 +9,8 @@ from torch.distributions.normal import Normal
 
 class Pol2VecMulti(torch.nn.Module):
 
-    def __init__(self, train_data, dim, order, metric, metric_param=None, epochs_num=100,
-                 learning_rate=0.1, sigma_grad=False, seed=123, verbose=True):
+    def __init__(self, train_data, dim, order, metric, samples_num=0, sampling_class=1, metric_param=None,
+                 epochs_num=100, learning_rate=0.1, sigma_grad=False, seed=123, verbose=True):
 
         super().__init__()
 
@@ -23,9 +23,6 @@ class Pol2VecMulti(torch.nn.Module):
         self.__train_col_indices = train_data['col_indices']
         self.__train_event_times = train_data['times']
 
-        # print(self.__train_event_times)
-
-        # self.__test_data = test_data
         self.__row_size = self.__train_events[0].shape[0] #None #self.__train_events.shape[0]
         self.__col_size = sum([len(event_times) for event_times in self.__train_event_times])  #None #self.__train_events.shape[1]
 
@@ -34,6 +31,10 @@ class Pol2VecMulti(torch.nn.Module):
 
         self.__metric = metric
         self.__metric_param = metric_param
+
+        #
+        self.__samples_num = samples_num
+        self.__samples_class = sampling_class
 
         # Optimization parameters
         self.__epochs_num = epochs_num
@@ -64,6 +65,8 @@ class Pol2VecMulti(torch.nn.Module):
                 raise ValueError("Invalid metric parameter value!")
         self.__L = torch.nn.Parameter(self.__L, requires_grad=True)
 
+        self.__verbose = verbose
+
         # Store the factorial terms
         self.__factorials = [float(math.factorial(o)) for o in range(self.__var_size)]
 
@@ -76,7 +79,7 @@ class Pol2VecMulti(torch.nn.Module):
         #
         self.__b.data[(self.__class_num-1)//2] = 0.
 
-        if verbose:
+        if self.__verbose:
             print("Number of classes: {}".format(self.__class_num))
 
         # Distance function
@@ -206,6 +209,16 @@ class Pol2VecMulti(torch.nn.Module):
 
     def forward(self, batch_events_mat, col_idx_list, batch_events_time):
 
+        if self.__samples_num > 0:
+            all_possible_indices = torch.where(batch_events_mat == self.__samples_class)
+            indices_count = len(all_possible_indices[0])
+            if indices_count > 0:
+                sample_count = batch_events_mat.shape[1] * self.__samples_num
+                # print(indices_count)
+                sampled_indices = torch.randint(high=indices_count, size=(min(sample_count, indices_count), ))
+                batch_events_mat[all_possible_indices] = 0
+                batch_events_mat[all_possible_indices[0][sampled_indices], all_possible_indices[1][sampled_indices]] = self.__samples_class
+
         return -self.compute_all_log_likelihood(batch_events_mat=batch_events_mat, col_idx_list=col_idx_list, col_times=batch_events_time)
 
     def set_gradients_of_latent_variables(self, index, value=True):
@@ -268,31 +281,23 @@ class Pol2VecMulti(torch.nn.Module):
                     total_train_loss = 0.
                     counter = 0
                     for batch_train_events, col_indices, batch_event_times in zip(self.__train_events, self.__train_col_indices, self.__train_event_times):
-                        # print(epoch, col_indices)
-                        # for param in self.parameters():
-                        #     param.grad = None
+
+                        # Set the gradients to 0
                         optimizer.zero_grad()
 
-                        counter += 1
+                        # Forward pass
                         train_loss = self.forward(batch_events_mat=torch.tensor(batch_train_events.todense(), dtype=torch.int8),
                                                   col_idx_list=col_indices, batch_events_time=batch_event_times)
-                        total_train_loss += train_loss
                         # Backward pass
                         train_loss.backward()
-                        # print("== ", total_train_loss.item())
+                        # Set the gradients
                         self.__set_gradients(inx=inx)
-                        # Step
+                        # Perform a step
                         optimizer.step()
+                        # Get the training loss
+                        total_train_loss += train_loss
 
-                    # print(self.__b)
-                    # print("post-forward")
-                    # Append the loss
                     train_loss_list.append(total_train_loss.item() / self.__col_size)
-
-                    # self.eval()
-                    # with torch.no_grad():
-                    #     test_loss = self(data=self.__testSet)
-                    #     testLoss.append(test_loss / len(self.__testSet))
 
                     if epoch % 50 == 0:
                         print(f"Epoch {epoch + 1} train loss: {total_train_loss / self.__col_size}")

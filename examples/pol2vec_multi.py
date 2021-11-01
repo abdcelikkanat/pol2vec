@@ -27,14 +27,13 @@ def batching(event_mat, event_times, batch_size, max_time):
 
     return event_mat_list, col_indices_list, event_times_list
 
-
 # Define the global variables
 script_folder = os.path.dirname(__file__)
 base_folder = os.path.realpath(os.path.join(script_folder, ".."))
 dataset_folder = os.path.realpath(os.path.join(base_folder, "datasets"))
 
 # Set the dataset name
-dataset_name = "congress" #"arxiv_19-20"  #"example1
+dataset_name = "arxiv_19-20" #"congress" #"arxiv_19-20"  #"example1
 suffix = "deneme" #"test"
 
 # Set the model parameters
@@ -54,7 +53,7 @@ verbose = True
 learn = True
 
 # Define the file name
-filename = "{}_{}_order={}_{}_{}_epochs={}_lr={}_batch_size={}_max_column={}_seed={}".format(dataset_name, suffix, order, metric, metric_param, epochs_num, learning_rate, batch_size, max_column, seed)
+filename = "{}_{}_order={}_{}_{}_samples={}_epochs={}_lr={}_batch_size={}_max_column={}_seed={}".format(dataset_name, suffix, order, metric, metric_param, samples_num, epochs_num, learning_rate, batch_size, max_column, seed)
 
 # Set the figures folder
 figures_folder = os.path.join(base_folder, "figures", filename)
@@ -76,6 +75,9 @@ max_el = float(max(data['times']))
 data['times'] = [value / max_el for value in data['times']]
 # Concert the data to dense format
 data['events'] = data['events']
+
+if dataset_name == "arxiv_19-20":
+    data['events'] += 1
 
 # Batching
 train_data = dict()
