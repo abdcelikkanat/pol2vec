@@ -64,8 +64,6 @@ class Pol2VecMulti(torch.nn.Module):
                 raise ValueError("Invalid metric parameter value!")
         self.__L = torch.nn.Parameter(self.__L, requires_grad=True)
 
-        print(self.__L.shape)
-
         # Store the factorial terms
         self.__factorials = [float(math.factorial(o)) for o in range(self.__var_size)]
 
@@ -96,43 +94,36 @@ class Pol2VecMulti(torch.nn.Module):
 
         return self.get_variable_at(i=i, order_index=0, t=t)
 
-    def get_all_row_positions(self, mat_indices, col_times):
+    def get_all_row_positions(self, batch_event_indices, batch_col_times):
+        col_times_mat = torch.tensor([(np.asarray(batch_col_times) ** o) / self.__factorials[o] for o in range(self.__var_size)], dtype=torch.float )
 
-        # z = torch.zeros(size=(len(mat_indices), self.__dim), dtype=torch.float)
-        t0 = time.time()
-        col_times_mat = torch.tensor([(np.asarray(col_times) ** o) / self.__factorials[o] for o in range(self.__var_size)], dtype=torch.float )
-        # print("Col times: {}".format(time.time() - t0))
+        # z_rows = order x row_size x dim
+        # col_times_mat = order x batch_col_size
+        z = torch.matmul(self.__z_rows.transpose(0, 2), col_times_mat).permute(1, 2, 0)  # row_size x batch_col_size x dim
+        z = z[batch_event_indices.T[0], batch_event_indices.T[1], :]
 
-        t0 = time.time()
-        # for idx, mat_idx in enumerate(mat_indices):
-        #     z[idx, :] = torch.matmul(col_times_mat[:, mat_idx[1]], self.__z_rows[:, mat_idx[0], :])
-
-        z = torch.matmul(self.__z_rows.transpose(0, 2), col_times_mat).permute(1, 2, 0) #.reshape(-1, self.__dim)
-        z = z[mat_indices.T[0], mat_indices.T[1], :]
-        # print("z assignment: {}".format(time.time() - t0))
-        # print(z.shape)
         return z
 
-    def get_position_of_column(self, col_idx):
-
-        return self.__z_cols[col_idx, :]
-
-    def get_distance(self, row_idx, col_idx, t):
-
-        z_row = self.get_position_of_row_at(i=row_idx, t=t)
-        z_col = self.get_position_of_column(col_idx=col_idx)
-
-        temp = z_row - z_col
-        return torch.sqrt(torch.dot(temp, temp))
+    # def get_position_of_column(self, col_idx):
+    #
+    #     return self.__z_cols[col_idx, :]
+    #
+    # def get_distance(self, row_idx, col_idx, t):
+    #
+    #     z_row = self.get_position_of_row_at(i=row_idx, t=t)
+    #     z_col = self.get_position_of_column(col_idx=col_idx)
+    #
+    #     temp = z_row - z_col
+    #     return torch.sqrt(torch.dot(temp, temp))
 
     def get_all_pairwise_distances(self, mat_indices, col_idx_list, col_times):
 
         t0 = time.time()
-        z_rows = self.get_all_row_positions(mat_indices=mat_indices, col_times=col_times)
+        z_rows = self.get_all_row_positions(batch_event_indices=mat_indices, batch_col_times=col_times)
 
         if self.__metric == "euc" or self.__metric == "euclidean":
 
-            return self.__pdist(z_rows, self.__z_cols[mat_indices.T[1], :])
+            return self.__pdist(z_rows, self.__z_cols[col_idx_list, :][mat_indices.T[1], :])
 
         elif self.__metric == "mah" or self.__metric == "mahalanobis":
 
@@ -179,48 +170,43 @@ class Pol2VecMulti(torch.nn.Module):
         dist = -self.get_all_pairwise_distances(mat_indices=mat_indices, col_idx_list=col_idx_list, col_times=col_times)
 
         dist += self.get_all_row_bias(indices=mat_indices.T[0])
-        dist += self.get_all_col_bias(indices=mat_indices.T[1])
+        dist += self.get_all_col_bias(indices=[col_idx_list[idx] for idx in mat_indices.T[1]])
 
         return dist
 
-    def compute_all_log_likelihood(self, event_mat, col_idx_list, col_times):
-        '''
-
-        :param event_mat: row_size x col_size matrix
-        :param col_times:
-        :return:
-        '''
+    def compute_all_log_likelihood(self, batch_events_mat, col_idx_list, col_times):
 
         t0 = time.time()
-        mat_indices = event_mat.nonzero()
+        batch_mat_indices = batch_events_mat.nonzero()
         # print("Step0: ", time.time() - t0)
 
         t0 = time.time()
-        temp = self.compute_all_f(mat_indices=mat_indices, col_idx_list=col_idx_list, col_times=col_times)
+        temp = self.compute_all_f(mat_indices=batch_mat_indices, col_idx_list=col_idx_list, col_times=col_times)
         # print("Step1: ", time.time() - t0)
-        # print(temp)
+
         t0 = time.time()
         theta = torch.hstack((torch.tensor([-self.__big_number]), self.__b, torch.tensor([self.__big_number])))
         # print("Step2: ", time.time() - t0)
 
         t0 = time.time()
         y0, y1 = [], []
-        for row_idx, col_idx in mat_indices:
-            y0.append(event_mat[row_idx, col_idx] - 1)
-            y1.append(event_mat[row_idx, col_idx])
+        for row_idx, col_idx in batch_mat_indices:
+            y0.append(batch_events_mat[row_idx, col_idx] - 1)
+            y1.append(batch_events_mat[row_idx, col_idx])
         # y0 = [event_mat[row_idx, col_idx] - 1 for row_idx, col_idx in mat_indices]
         # y1 = [event_mat[row_idx, col_idx] for row_idx, col_idx in mat_indices]
         # print("Step3: ", time.time() - t0)
 
         t0 = time.time()
         ll = torch.log(self.__normal.cdf((theta[y1] - temp)/self.__sigma) - self.__normal.cdf((theta[y0] - temp)/self.__sigma))
+
         # print("Step4: ", time.time() - t0)
 
         return ll.sum()
 
-    def forward(self, events, col_idx_list, events_time):
+    def forward(self, batch_events_mat, col_idx_list, batch_events_time):
 
-        return -self.compute_all_log_likelihood(event_mat=events, col_idx_list=col_idx_list, col_times=events_time)
+        return -self.compute_all_log_likelihood(batch_events_mat=batch_events_mat, col_idx_list=col_idx_list, col_times=batch_events_time)
 
     def set_gradients_of_latent_variables(self, index, value=True):
 
@@ -233,16 +219,16 @@ class Pol2VecMulti(torch.nn.Module):
         self.__b.grad[(self.__class_num-1)//2] = 0
 
         #
-        for col_idx in range(self.__col_size):
-            if self.__metric_param == "full":
+        if self.__metric == "mal" or self.__metric == "mahalanobis":
 
-                self.__L.grad[col_idx, torch.triu_indices(row=self.__dim, col=self.__dim, offset=1)] = 0
+            for col_idx in range(self.__col_size):
+                if self.__metric_param == "full":
 
-            if self.__metric_param == "diag" or self.__metric_param == "diagonal":
+                    self.__L.grad[col_idx, torch.triu_indices(row=self.__dim, col=self.__dim, offset=1)] = 0
 
-                self.__L.grad[col_idx, range(self.__dim),  range(self.__dim)] = 0
+                if self.__metric_param == "diag" or self.__metric_param == "diagonal":
 
-
+                    self.__L.grad[col_idx, range(self.__dim),  range(self.__dim)] = 0
 
         #
         if inx > 0:
@@ -258,6 +244,9 @@ class Pol2VecMulti(torch.nn.Module):
         # List for storing the training and testing set losses
         train_loss_list, test_loss_list = [], []
 
+        # Define the optimizer
+        optimizer = torch.optim.Adam(self.parameters(), lr=self.__lr)
+
         # Learns the parameters sequentially
         if type == "seq":
 
@@ -270,32 +259,31 @@ class Pol2VecMulti(torch.nn.Module):
                 else:
                     self.set_gradient_of_bias_terms()
 
-                # Define the optimizer
-                optimizer = torch.optim.Adam(self.parameters(), lr=self.__lr)
-
                 for epoch in range(self.__epochs_num):
                     # print("Epoch: {}".format(epoch))
                     self.train()
-
-                    for param in self.parameters():
-                        param.grad = None
 
                     # Forward pass
                     # print("forward")
                     total_train_loss = 0.
                     counter = 0
                     for batch_train_events, col_indices, batch_event_times in zip(self.__train_events, self.__train_col_indices, self.__train_event_times):
-                        # print(counter)
+                        # print(epoch, col_indices)
+                        # for param in self.parameters():
+                        #     param.grad = None
+                        optimizer.zero_grad()
+
                         counter += 1
-                        train_loss = self.forward(events=torch.tensor(batch_train_events.todense(), dtype=torch.int8), col_idx_list=col_indices, events_time=batch_event_times)
+                        train_loss = self.forward(batch_events_mat=torch.tensor(batch_train_events.todense(), dtype=torch.int8),
+                                                  col_idx_list=col_indices, batch_events_time=batch_event_times)
                         total_train_loss += train_loss
-                    # Backward pass
-                    total_train_loss.backward()
+                        # Backward pass
+                        train_loss.backward()
+                        # print("== ", total_train_loss.item())
+                        self.__set_gradients(inx=inx)
+                        # Step
+                        optimizer.step()
 
-                    self.__set_gradients(inx=inx)
-
-                    # Step
-                    optimizer.step()
                     # print(self.__b)
                     # print("post-forward")
                     # Append the loss
@@ -307,7 +295,7 @@ class Pol2VecMulti(torch.nn.Module):
                     #     testLoss.append(test_loss / len(self.__testSet))
 
                     if epoch % 50 == 0:
-                        print(f"Epoch {epoch + 1} train loss: {total_train_loss.item() / self.__col_size}")
+                        print(f"Epoch {epoch + 1} train loss: {total_train_loss / self.__col_size}")
                         # print(f"Epoch {epoch + 1} test loss: {test_loss / len(self.__testSet)}")
 
         return train_loss_list, test_loss_list
